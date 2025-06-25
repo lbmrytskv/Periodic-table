@@ -1,5 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import { PeriodicElement } from './periodic-element.interface';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { Subject } from 'rxjs';
 
 const ELEMENT_DATA: PeriodicElement[] = [
   { position: 1, name: 'Hydrogen', weight: 1.0079, symbol: 'H' },
@@ -20,12 +22,37 @@ const ELEMENT_DATA: PeriodicElement[] = [
 export class ElementStore {
   private readonly _elements = signal<PeriodicElement[]>([]);
   private readonly _loading = signal<boolean>(true);
+  private readonly _filter = signal<string>('');
 
-  readonly elements = this._elements.asReadonly();
   readonly loading = this._loading.asReadonly();
+  readonly filter = this._filter.asReadonly();
+
+  readonly elements = computed(() => {
+    const filterText = this._filter().toLowerCase().trim();
+    const data = this._elements();
+
+    if (!filterText) return data;
+
+    return data.filter(el =>
+      el.position.toString().includes(filterText) ||
+      el.name.toLowerCase().includes(filterText) ||
+      el.weight.toString().includes(filterText) ||
+      el.symbol.toLowerCase().includes(filterText)
+    );
+  });
+
+  private debounceSubject = new Subject<string>();
 
   constructor() {
     this.loadData();
+
+    this.debounceSubject
+      .pipe(debounceTime(2000), distinctUntilChanged())
+      .subscribe(value => this._filter.set(value));
+  }
+
+  setFilter(value: string) {
+    this.debounceSubject.next(value);
   }
 
   loadData() {
@@ -37,33 +64,27 @@ export class ElementStore {
   }
 
   updateElement(index: number, updated: PeriodicElement) {
-  const current = this._elements();
-  const currentElement = current[index];
+    const current = [...this._elements()];
+    const currentElement = current[index];
 
-  
-  if (currentElement.position === updated.position) {
-    const newElements = [...current];
-    newElements[index] = updated;
-    this._elements.set(newElements);
-    return;
+    if (currentElement.position === updated.position) {
+      current[index] = { ...updated };
+    } else {
+      const swapIndex = current.findIndex(
+        el => el.position === updated.position
+      );
+
+      if (swapIndex !== -1) {
+        
+        const temp = { ...current[swapIndex], position: currentElement.position };
+        current[swapIndex] = { ...updated };
+        current[index] = temp;
+      } else {
+      
+        current[index] = { ...updated };
+      }
+    }
+
+    this._elements.set(current);
   }
-
-  const targetIndex = current.findIndex(e => e.position === updated.position);
-  const newElements = [...current];
-
-  if (targetIndex !== -1) {
-
-    const targetElement = { ...newElements[targetIndex], position: currentElement.position };
-
-    newElements[targetIndex] = updated;
-
-    newElements[index] = targetElement;
-  } else {
-    
-    newElements[index] = updated;
-  }
-
-  this._elements.set(newElements);
-}
-
 }
